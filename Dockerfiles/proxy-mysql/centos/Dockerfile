@@ -1,11 +1,12 @@
 # syntax=docker/dockerfile:1
+ARG OS_BASE_IMAGE=quay.io/centos/centos:stream9-minimal
 ARG MAJOR_VERSION=6.4
-ARG ZBX_VERSION=${MAJOR_VERSION}.7
+ARG ZBX_VERSION=${MAJOR_VERSION}.21
 ARG BUILD_BASE_IMAGE=zabbix-build-mysql:centos-${ZBX_VERSION}
 
-FROM ${BUILD_BASE_IMAGE} as builder
+FROM ${BUILD_BASE_IMAGE} AS builder
 
-FROM quay.io/centos/centos:stream9
+FROM ${OS_BASE_IMAGE}
 
 ARG MAJOR_VERSION
 ARG ZBX_VERSION
@@ -13,7 +14,11 @@ ARG ZBX_SOURCES=https://git.zabbix.com/scm/zbx/zabbix.git
 
 ENV TERM=xterm \
     ZBX_VERSION=${ZBX_VERSION} ZBX_SOURCES=${ZBX_SOURCES} \
-    MIBDIRS=/usr/share/snmp/mibs:/var/lib/zabbix/mibs MIBS=+ALL
+    MIBDIRS=/usr/share/snmp/mibs:/var/lib/zabbix/mibs MIBS=+ALL \
+    NMAP_PRIVILEGED="" \
+    ZABBIX_USER_HOME_DIR="/var/lib/zabbix" \
+    ZABBIX_CONF_DIR="/etc/zabbix" \
+    ZBX_FPINGLOCATION="/usr/sbin/fping"
 
 LABEL org.opencontainers.image.authors="Alexey Pustovalov <alexey.pustovalov@zabbix.com>" \
       org.opencontainers.image.description="Zabbix proxy with MySQL database support" \
@@ -22,22 +27,22 @@ LABEL org.opencontainers.image.authors="Alexey Pustovalov <alexey.pustovalov@zab
       org.opencontainers.image.source="${ZBX_SOURCES}" \
       org.opencontainers.image.title="Zabbix proxy (MySQL)" \
       org.opencontainers.image.url="https://zabbix.com/" \
-      org.opencontainers.image.vendor="Zabbix LLC" \
+      org.opencontainers.image.vendor="Zabbix SIA" \
       org.opencontainers.image.version="${ZBX_VERSION}"
 
 STOPSIGNAL SIGTERM
 
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_proxy/zabbix_proxy", "/usr/sbin/zabbix_proxy"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_get/zabbix_get", "/usr/bin/zabbix_get"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_sender/zabbix_sender", "/usr/bin/zabbix_sender"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/conf/zabbix_proxy.conf", "/etc/zabbix/zabbix_proxy.conf"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/database/mysql/create_proxy.sql.gz", "/usr/share/doc/zabbix-proxy-mysql/create.sql.gz"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/proxy/sbin/zabbix_proxy", "/usr/sbin/zabbix_proxy"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/general/bin/*", "/usr/bin/"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/proxy/conf/", "${ZABBIX_CONF_DIR}/"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/proxy/database/mysql/", "/usr/share/doc/zabbix-proxy-mysql/"]
 
-RUN set -eux && \
-    REPOLIST="baseos,appstream,crb,epel" && \
-    INSTALL_PKGS="libevent \
+RUN --mount=type=tmpfs,target=/var/lib/dnf/ \
+    --mount=type=tmpfs,target=/var/cache/yum/ \
+    set -eux && \
+    INSTALL_PKGS="bash \
+            libevent \
             tini \
-            sudo \
             traceroute \
             nmap \
             gzip \
@@ -50,18 +55,36 @@ RUN set -eux && \
             net-snmp-libs \
             OpenIPMI-libs \
             openldap \
+            openssl \
             openssl-libs \
             pcre2 \
+            shadow-utils \
             zlib \
             unixODBC" && \
-    dnf -y install epel-release && \
-    dnf -y install \
-            --disablerepo "*" \
-            --enablerepo "${REPOLIST}" \
-            --setopt=tsflags=nodocs \
-            --setopt=install_weak_deps=False \
+    microdnf -y install \
+        --disablerepo "*" \
+        --enablerepo "extras-common" \
+        --setopt=install_weak_deps=0 \
+        --setopt=keepcache=0 \
+        --best \
+        --nodocs epel-release && \
+    microdnf -y install \
+        --disablerepo "*" \
+        --enablerepo "baseos" \
+        --enablerepo "appstream" \
+        --enablerepo "crb" \
+        --enablerepo="epel" \
+        --setopt=install_weak_deps=0 \
+        --setopt=keepcache=0 \
+        --best \
+        --nodocs ${INSTALL_PKGS} && \
+    microdnf -y reinstall \
+            --enablerepo "baseos" \
+            --setopt=install_weak_deps=0 \
+            --setopt=keepcache=0 \
             --best \
-        ${INSTALL_PKGS} && \
+            --setopt=tsflags=nodocs \
+        tzdata && \
     groupadd \
             --system \
             --gid 1995 \
@@ -70,37 +93,36 @@ RUN set -eux && \
             --system \
             --comment "Zabbix monitoring system" \
             -g zabbix \
-            -G root \
             --uid 1997 \
             --shell /sbin/nologin \
-            --home-dir /var/lib/zabbix/ \
+            --home-dir ${ZABBIX_USER_HOME_DIR} \
         zabbix && \
-    echo "zabbix ALL=(root) NOPASSWD: /usr/bin/nmap" >> /etc/sudoers.d/zabbix && \
-    mkdir -p /etc/zabbix && \
-    mkdir -p /var/lib/zabbix && \
-    mkdir -p /var/lib/zabbix/enc && \
+    chgrp zabbix /usr/bin/nmap && \
+    setcap cap_net_raw+eip /usr/bin/nmap && \
+    mkdir -p ${ZABBIX_CONF_DIR} && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR} && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/enc && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/enc_internal && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/mibs && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/modules && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/snmptraps && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssh_keys && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssl && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssl/certs && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssl/keys && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssl/ssl_ca && \
     mkdir -p /usr/lib/zabbix/externalscripts && \
-    mkdir -p /var/lib/zabbix/mibs && \
-    mkdir -p /var/lib/zabbix/modules && \
-    mkdir -p /var/lib/zabbix/snmptraps && \
-    mkdir -p /var/lib/zabbix/ssh_keys && \
-    mkdir -p /var/lib/zabbix/ssl && \
-    mkdir -p /var/lib/zabbix/ssl/certs && \
-    mkdir -p /var/lib/zabbix/ssl/keys && \
-    mkdir -p /var/lib/zabbix/ssl/ssl_ca && \
     mkdir -p /usr/share/doc/zabbix-proxy-mysql && \
-    chown --quiet -R zabbix:root /etc/zabbix/ /var/lib/zabbix/ && \
-    chgrp -R 0 /etc/zabbix/ /var/lib/zabbix/ && \
-    chmod -R g=u /etc/zabbix/ /var/lib/zabbix/ && \
-    dnf -y clean all && \
-    rm -rf /var/cache/yum /var/lib/yum/yumdb/* /usr/lib/udev/hwdb.d/* && \
-    rm -rf /var/cache/dnf /etc/udev/hwdb.bin /root/.pki
+    chown --quiet -R zabbix:root ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    chgrp -R 0 ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    chmod -R g=u ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    /usr/sbin/zabbix_proxy -V
 
 EXPOSE 10051/TCP
 
-WORKDIR /var/lib/zabbix
+WORKDIR ${ZABBIX_USER_HOME_DIR}
 
-VOLUME ["/var/lib/zabbix/snmptraps"]
+VOLUME ["${ZABBIX_USER_HOME_DIR}/snmptraps"]
 
 COPY ["docker-entrypoint.sh", "/usr/bin/"]
 

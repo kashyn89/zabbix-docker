@@ -18,11 +18,22 @@ fi
 # Default timezone for web interface
 : ${PHP_TZ:="Europe/Riga"}
 
+# Default user settings
+: ${DAEMON_USER:="www-data"}
+: ${DAEMON_GROUP:="www-data"}
+
+# DefaultRuntimeDir configuration option value
+export APACHE_RUN_DIR="/tmp/apache2"
+
 # Default directories
-# Configuration files directory
-ZABBIX_ETC_DIR="/etc/zabbix"
-# Web interface www-root directory
-ZABBIX_WWW_ROOT="/usr/share/zabbix"
+# Apache main configuration file
+HTTPD_CONF_FILE="/etc/apache2/apache2.conf"
+# Apache additional configuration files directory
+APACHE_SITES_DIR="/etc/apache2/sites-enabled"
+# Directory with SSL certificate files for Apache
+APACHE_SSL_CONFIG_DIR="/etc/ssl/apache2"
+# PHP-FPM configuration file
+PHP_CONFIG_FILE="/etc/php/8.3/fpm/pool.d/zabbix.conf"
 
 # usage: file_env VAR [DEFAULT]
 # as example: file_env 'MYSQL_PASSWORD' 'zabbix'
@@ -60,7 +71,7 @@ check_variables() {
     file_env POSTGRES_USER
     file_env POSTGRES_PASSWORD
 
-    : ${DB_SERVER_HOST:="postgres-server"}
+    : ${DB_SERVER_HOST="postgres-server"}
     : ${DB_SERVER_PORT:="5432"}
 
     DB_SERVER_ZBX_USER=${POSTGRES_USER:-"zabbix"}
@@ -71,11 +82,23 @@ check_variables() {
     DB_SERVER_DBNAME=${POSTGRES_DB:-"zabbix"}
 
     : ${POSTGRES_USE_IMPLICIT_SEARCH_PATH:="false"}
+
+    if [ -n "${DB_SERVER_HOST}" ]; then
+        psql_connect_args="--host ${DB_SERVER_HOST} --port ${DB_SERVER_PORT}"
+    else
+        psql_connect_args="--port ${DB_SERVER_PORT}"
+    fi
 }
 
 check_db_connect() {
     echo "********************"
-    echo "* DB_SERVER_HOST: ${DB_SERVER_HOST}"
+    if [ -n "${DB_SERVER_HOST}" ]; then
+        echo "* DB_SERVER_HOST: ${DB_SERVER_HOST}"
+        echo "* DB_SERVER_PORT: ${DB_SERVER_PORT}"
+    else
+        echo "* DB_SERVER_HOST: Using DB socket"
+        echo "* DB_SERVER_PORT: ${DB_SERVER_PORT}"
+    fi
     echo "* DB_SERVER_PORT: ${DB_SERVER_PORT}"
     echo "* DB_SERVER_DBNAME: ${DB_SERVER_DBNAME}"
     echo "* DB_SERVER_SCHEMA: ${DB_SERVER_SCHEMA}"
@@ -104,7 +127,7 @@ check_db_connect() {
         export PGSSLKEY=${ZBX_DBTLSKEYFILE}
     fi
 
-    while [ ! "$(psql --host ${DB_SERVER_HOST} --port ${DB_SERVER_PORT} --username ${DB_SERVER_ZBX_USER} --dbname ${DB_SERVER_DBNAME} --list --quiet 2>/dev/null)" ]; do
+    while [ ! "$(psql $psql_connect_args --username ${DB_SERVER_ZBX_USER} --dbname ${DB_SERVER_DBNAME} --list --quiet 2>/dev/null)" ]; do
         echo "**** PostgreSQL server is not available. Waiting $WAIT_TIMEOUT seconds..."
         sleep $WAIT_TIMEOUT
     done
@@ -118,33 +141,66 @@ check_db_connect() {
 }
 
 prepare_web_server() {
-    APACHE_SITES_DIR="/etc/apache2/sites-enabled"
+    if [ "$(id -u)" == '0' ]; then
+        export APACHE_RUN_USER=${DAEMON_USER}
+    else
+        export APACHE_RUN_USER=$(id -n -u)
+    fi
+    export APACHE_RUN_GROUP=${DAEMON_GROUP}
 
     echo "** Adding Zabbix virtual host (HTTP)"
-    if [ -f "$ZABBIX_ETC_DIR/apache.conf" ]; then
-        ln -sfT "$ZABBIX_ETC_DIR/apache.conf" "$APACHE_SITES_DIR/zabbix.conf"
+    if [ -f "$ZABBIX_CONF_DIR/apache.conf" ]; then
+        ln -sfT "$ZABBIX_CONF_DIR/apache.conf" "$APACHE_SITES_DIR/zabbix.conf"
     else
         echo "**** Impossible to enable HTTP virtual host"
     fi
 
-    if [ -f "/etc/ssl/apache2/ssl.crt" ] && [ -f "/etc/ssl/apache2/ssl.key" ]; then
+    if [ -f "$APACHE_SSL_CONFIG_DIR/ssl.crt" ] && [ -f "$APACHE_SSL_CONFIG_DIR/ssl.key" ]; then
         echo "** Adding Zabbix virtual host (HTTPS)"
-        if [ -f "$ZABBIX_ETC_DIR/apache_ssl.conf" ]; then
-            ln -sfT "$ZABBIX_ETC_DIR/apache_ssl.conf" "$APACHE_SITES_DIR/zabbix_ssl.conf"
+        if [ -f "$ZABBIX_CONF_DIR/apache_ssl.conf" ]; then
+            ln -sfT "$ZABBIX_CONF_DIR/apache_ssl.conf" "$APACHE_SITES_DIR/zabbix_ssl.conf"
         else
             echo "**** Impossible to enable HTTPS virtual host"
         fi
     else
         echo "**** Impossible to enable SSL support for Apache2. Certificates are missed."
     fi
+
+    export HTTP_INDEX_FILE=${HTTP_INDEX_FILE:="index.php"}
+
+    : ${ENABLE_WEB_ACCESS_LOG:="true"}
+    export APACHE_CUSTOM_LOG="/proc/self/fd/1"
+    if [ "${ENABLE_WEB_ACCESS_LOG,,}" == "false" ]; then
+        export APACHE_CUSTOM_LOG="/dev/null"
+    fi
+
+    : ${EXPOSE_WEB_SERVER_INFO:="on"}
+    export APACHE_SERVER_TOKENS="OS"
+    export APACHE_SERVER_SIGNATURE="On"
+    if [ "${EXPOSE_WEB_SERVER_INFO}" == "off" ]; then
+        export APACHE_SERVER_TOKENS="Prod"
+        export APACHE_SERVER_SIGNATURE="Off"
+    fi
+
+    mkdir -p "${APACHE_RUN_DIR}"
 }
 
-clear_deploy() {
-    echo "** Cleaning the system"
-}
+prepare_zbx_php_config() {
+    echo "** Preparing PHP configuration"
 
-prepare_zbx_web_config() {
-    echo "** Preparing Zabbix frontend configuration file"
+    export PHP_FPM_PM=${PHP_FPM_PM:-"dynamic"}
+    export PHP_FPM_PM_MAX_CHILDREN=${PHP_FPM_PM_MAX_CHILDREN:-"50"}
+    export PHP_FPM_PM_START_SERVERS=${PHP_FPM_PM_START_SERVERS:-"5"}
+    export PHP_FPM_PM_MIN_SPARE_SERVERS=${PHP_FPM_PM_MIN_SPARE_SERVERS:-"5"}
+    export PHP_FPM_PM_MAX_SPARE_SERVERS=${PHP_FPM_PM_MAX_SPARE_SERVERS:-"35"}
+    export PHP_FPM_PM_MAX_REQUESTS=${PHP_FPM_PM_MAX_REQUESTS:-"0"}
+
+    if [ "$(id -u)" == '0' ]; then
+        echo "user = ${DAEMON_USER}" >> "$PHP_CONFIG_FILE"
+        echo "group = ${DAEMON_GROUP}" >> "$PHP_CONFIG_FILE"
+        echo "listen.owner = ${DAEMON_USER}" >> "$PHP_CONFIG_FILE"
+        echo "listen.group = ${DAEMON_GROUP}" >> "$PHP_CONFIG_FILE"
+    fi
 
     : ${ZBX_DENY_GUI_ACCESS:="false"}
     export ZBX_DENY_GUI_ACCESS=${ZBX_DENY_GUI_ACCESS,,}
@@ -194,22 +250,13 @@ prepare_zbx_web_config() {
     export ZBX_SSO_SP_KEY=${ZBX_SSO_SP_KEY}
     export ZBX_SSO_SP_CERT=${ZBX_SSO_SP_CERT}
     export ZBX_SSO_IDP_CERT=${ZBX_SSO_IDP_CERT}
+}
 
+prepare_zbx_config() {
     if [ -n "${ZBX_SESSION_NAME}" ]; then
         cp "$ZABBIX_WWW_ROOT/include/defines.inc.php" "/tmp/defines.inc.php_tmp"
         sed "/ZBX_SESSION_NAME/s/'[^']*'/'${ZBX_SESSION_NAME}'/2" "/tmp/defines.inc.php_tmp" > "$ZABBIX_WWW_ROOT/include/defines.inc.php"
         rm -f "/tmp/defines.inc.php_tmp"
-    fi
-
-    : ${ENABLE_WEB_ACCESS_LOG:="true"}
-
-    if [ "${ENABLE_WEB_ACCESS_LOG,,}" == "false" ]; then
-        sed -ri \
-            -e 's!^(\s*CustomLog)\s+\S+!\1 /dev/null!g' \
-            "/etc/apache2/apache2.conf"
-        sed -ri \
-            -e 's!^(\s*CustomLog)\s+\S+!\1 /dev/null!g' \
-            "/etc/apache2/conf-available/other-vhosts-access-log.conf"
     fi
 }
 
@@ -219,17 +266,18 @@ echo "** Deploying Zabbix web-interface (Apache) with PostgreSQL database"
 
 check_variables
 check_db_connect
+prepare_zbx_php_config
 prepare_web_server
-prepare_zbx_web_config
+prepare_zbx_config
 
 echo "########################################################"
 
 if [ "$1" != "" ]; then
     echo "** Executing '$@'"
     exec "$@"
-elif [ -f "/usr/sbin/httpd" ]; then
-    echo "** Executing HTTPD"
-    exec /usr/sbin/httpd -D FOREGROUND
+elif [ -f "/usr/bin/supervisord" ]; then
+    echo "** Executing supervisord"
+    exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
 else
     echo "Unknown instructions. Exiting..."
     exit 1

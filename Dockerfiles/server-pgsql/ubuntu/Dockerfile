@@ -1,11 +1,12 @@
 # syntax=docker/dockerfile:1
+ARG OS_BASE_IMAGE=ubuntu:noble
 ARG MAJOR_VERSION=6.4
-ARG ZBX_VERSION=${MAJOR_VERSION}.7
+ARG ZBX_VERSION=${MAJOR_VERSION}.21
 ARG BUILD_BASE_IMAGE=zabbix-build-pgsql:ubuntu-${ZBX_VERSION}
 
-FROM ${BUILD_BASE_IMAGE} as builder
+FROM ${BUILD_BASE_IMAGE} AS builder
 
-FROM ubuntu:jammy
+FROM ${OS_BASE_IMAGE}
 
 ARG MAJOR_VERSION
 ARG ZBX_VERSION
@@ -13,7 +14,11 @@ ARG ZBX_SOURCES=https://git.zabbix.com/scm/zbx/zabbix.git
 
 ENV TERM=xterm \
     ZBX_VERSION=${ZBX_VERSION} ZBX_SOURCES=${ZBX_SOURCES} \
-    MIBDIRS=/var/lib/mibs/ietf:/var/lib/mibs/iana:/usr/share/snmp/mibs:/var/lib/zabbix/mibs MIBS=+ALL
+    MIBDIRS=/var/lib/mibs/ietf:/var/lib/mibs/iana:/usr/share/snmp/mibs:/var/lib/zabbix/mibs MIBS=+ALL \
+    NMAP_PRIVILEGED="" \
+    ZABBIX_USER_HOME_DIR="/var/lib/zabbix" \
+    ZABBIX_CONF_DIR="/etc/zabbix" \
+    ZBX_FPINGLOCATION="/usr/bin/fping"
 
 LABEL org.opencontainers.image.authors="Alexey Pustovalov <alexey.pustovalov@zabbix.com>" \
       org.opencontainers.image.description="Zabbix server with PostgreSQL database support" \
@@ -22,23 +27,22 @@ LABEL org.opencontainers.image.authors="Alexey Pustovalov <alexey.pustovalov@zab
       org.opencontainers.image.source="${ZBX_SOURCES}" \
       org.opencontainers.image.title="Zabbix server (PostgreSQL)" \
       org.opencontainers.image.url="https://zabbix.com/" \
-      org.opencontainers.image.vendor="Zabbix LLC" \
+      org.opencontainers.image.vendor="Zabbix SIA" \
       org.opencontainers.image.version="${ZBX_VERSION}"
 
 STOPSIGNAL SIGTERM
 
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_server/zabbix_server", "/usr/sbin/zabbix_server"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_get/zabbix_get", "/usr/bin/zabbix_get"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_sender/zabbix_sender", "/usr/bin/zabbix_sender"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/conf/zabbix_server.conf", "/etc/zabbix/zabbix_server.conf"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/database/postgresql/create_server.sql.gz", "/usr/share/doc/zabbix-server-postgresql/create.sql.gz"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/database/postgresql/timescaledb.sql", "/usr/share/doc/zabbix-server-postgresql/timescaledb.sql"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/server/sbin/zabbix_server", "/usr/sbin/zabbix_server"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/general/bin/*", "/usr/bin/"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/server/conf/", "${ZABBIX_CONF_DIR}/"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/server/database/postgresql/", "/usr/share/doc/zabbix-server-postgresql/"]
 
-RUN set -eux && \
+RUN --mount=type=cache,target=/var/cache/apt/,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/,sharing=locked \
+    set -eux && \
     echo "#!/bin/sh\nexit 101" > /usr/sbin/policy-rc.d && \
     INSTALL_PKGS="bash \
             tini \
-            sudo \
             traceroute \
             nmap \
             tzdata \
@@ -46,19 +50,22 @@ RUN set -eux && \
             iputils-ping \
             traceroute \
             fping \
-            libcurl4 \
+            openssl \
+            libcurl4t64 \
             libevent-2.1 \
             libevent-pthreads-2.1 \
-            libopenipmi0 \
+            libopenipmi0t64 \
             libpcre2-8-0 \
             libpq5 \
-            libsnmp40 \
+            libsnmp40t64 \
             libssh-4 \
-            libssl3 \
+            libssl3t64 \
             libxml2 \
             postgresql-client \
             snmp-mibs-downloader \
-            unixodbc" && \
+            gzip \
+            unixodbc \
+            zlib1g" && \
     apt-get -y update && \
     DEBIAN_FRONTEND=noninteractive apt-get -y \
             --no-install-recommends install \
@@ -71,41 +78,40 @@ RUN set -eux && \
             --system \
             --comment "Zabbix monitoring system" \
             -g zabbix \
-            -G root,dialout \
+            -G dialout \
             --uid 1997 \
             --shell /sbin/nologin \
-            --home-dir /var/lib/zabbix/ \
+            --home-dir ${ZABBIX_USER_HOME_DIR} \
         zabbix && \
-    echo "zabbix ALL=(root) NOPASSWD: /usr/bin/nmap" >> /etc/sudoers.d/zabbix && \
-    mkdir -p /etc/zabbix && \
-    mkdir -p /var/lib/zabbix && \
+    chgrp zabbix /usr/bin/nmap && \
+    setcap cap_net_raw+eip /usr/bin/nmap && \
+    mkdir -p ${ZABBIX_CONF_DIR} && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR} && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/dbscripts && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/enc && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/enc_internal && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/export && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/mibs && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/modules && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/snmptraps && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssh_keys && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssl && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssl/certs && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssl/keys && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssl/ssl_ca && \
     mkdir -p /usr/lib/zabbix/alertscripts && \
-    mkdir -p /usr/lib/zabbix/dbscripts && \
-    mkdir -p /var/lib/zabbix/dbscripts && \
-    mkdir -p /var/lib/zabbix/enc && \
-    mkdir -p /var/lib/zabbix/export && \
     mkdir -p /usr/lib/zabbix/externalscripts && \
-    mkdir -p /var/lib/zabbix/mibs && \
-    mkdir -p /var/lib/zabbix/modules && \
-    mkdir -p /var/lib/zabbix/snmptraps && \
-    mkdir -p /var/lib/zabbix/ssh_keys && \
-    mkdir -p /var/lib/zabbix/ssl && \
-    mkdir -p /var/lib/zabbix/ssl/certs && \
-    mkdir -p /var/lib/zabbix/ssl/keys && \
-    mkdir -p /var/lib/zabbix/ssl/ssl_ca && \
     mkdir -p /usr/share/doc/zabbix-server-postgresql && \
-    chown --quiet -R zabbix:root /etc/zabbix/ /var/lib/zabbix/ && \
-    chgrp -R 0 /etc/zabbix/ /var/lib/zabbix/ && \
-    chmod -R g=u /etc/zabbix/ /var/lib/zabbix/ && \
-    apt-get -y autoremove && \
-    apt-get -y clean && \
-    rm -rf /var/lib/apt/lists/*
+    chown --quiet -R zabbix:root ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    chgrp -R 0 ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    chmod -R g=u ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    /usr/sbin/zabbix_server -V
 
 EXPOSE 10051/TCP
 
-WORKDIR /var/lib/zabbix
+WORKDIR ${ZABBIX_USER_HOME_DIR}
 
-VOLUME ["/var/lib/zabbix/snmptraps", "/var/lib/zabbix/export"]
+VOLUME ["${ZABBIX_USER_HOME_DIR}/snmptraps", "${ZABBIX_USER_HOME_DIR}/export"]
 
 COPY ["docker-entrypoint.sh", "/usr/bin/"]
 

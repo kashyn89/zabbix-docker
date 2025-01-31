@@ -16,19 +16,19 @@ The server performs the polling and trapping of data, it calculates triggers, se
 
 # Zabbix server images
 
-These are the only official Zabbix server Docker images. They are based on Alpine Linux v3.12, Ubuntu 20.04 (focal), 22.04 (jammy), CentOS Stream 8 and Oracle Linux 8 images. The available versions of Zabbix server are:
+These are the only official Zabbix server Docker images. They are based on Alpine Linux v3.21, Ubuntu 24.04 (noble), CentOS Stream 9 and Oracle Linux 9 images. The available versions of Zabbix server are:
 
-    Zabbix server 4.0 (tags: alpine-4.0-latest, ubuntu-4.0-latest, centos-4.0-latest)
-    Zabbix server 4.0.* (tags: alpine-4.0.*, ubuntu-4.0.*, centos-4.0.*)
     Zabbix server 5.0 (tags: alpine-5.0-latest, ubuntu-5.0-latest, ol-5.0-latest)
     Zabbix server 5.0.* (tags: alpine-5.0.*, ubuntu-5.0.*, ol-5.0.*)
     Zabbix server 6.0 (tags: alpine-6.0-latest, ubuntu-6.0-latest, ol-6.0-latest)
     Zabbix server 6.0.* (tags: alpine-6.0.*, ubuntu-6.0.*, ol-6.0.*)
-    Zabbix server 6.2 (tags: alpine-6.2-latest, ubuntu-6.2-latest, ol-6.2-latest)
-    Zabbix server 6.2.* (tags: alpine-6.2.*, ubuntu-6.2.*, ol-6.2.*)
-    Zabbix server 6.4 (tags: alpine-6.4-latest, ubuntu-6.4-latest, ol-6.4-latest, alpine-latest, ubuntu-latest, ol-latest, latest)
+    Zabbix server 6.4 (tags: alpine-6.4-latest, ubuntu-6.4-latest, ol-6.4-latest)
     Zabbix server 6.4.* (tags: alpine-6.4.*, ubuntu-6.4.*, ol-6.4.*)
-    Zabbix server 7.0 (tags: alpine-trunk, ubuntu-trunk, ol-trunk)
+    Zabbix server 7.0 (tags: alpine-7.0-latest, ubuntu-7.0-latest, ol-7.0-latest)
+    Zabbix server 7.0.* (tags: alpine-7.0.*, ubuntu-7.0.*, ol-7.0.*)
+    Zabbix server 7.2 (tags: alpine-7.2-latest, ubuntu-7.2-latest, ol-7.2-latest, alpine-latest, ubuntu-latest, ol-latest, latest)
+    Zabbix server 7.2.* (tags: alpine-7.2.*, ubuntu-7.2.*, ol-7.2.*)
+    Zabbix server 7.4 (tags: alpine-trunk, ubuntu-trunk, ol-trunk)
 
 Images are updated when new releases are published. The image with ``latest`` tag is based on Alpine Linux.
 
@@ -47,6 +47,16 @@ Start a Zabbix server container as follows:
     docker run --name some-zabbix-server-mysql -e DB_SERVER_HOST="some-mysql-server" -e MYSQL_USER="some-user" -e MYSQL_PASSWORD="some-password" -d zabbix/zabbix-server-mysql:tag
 
 Where `some-zabbix-server-mysql` is the name you want to assign to your container, `some-mysql-server` is IP or DNS name of MySQL server, `some-user` is user to connect to Zabbix database on MySQL server, `some-password` is the password to connect to MySQL server and `tag` is the tag specifying the version you want. See the list above for relevant tags, or look at the [full list of tags](https://hub.docker.com/r/zabbix/zabbix-server-mysql/tags/).
+
+> [!NOTE]
+> Zabbix server has possibility to execute `fping` utility to perform ICMP checks. When containers are running in rootless mode or with specific restrictions environment, you may face errors related to fping:
+> `fping: Operation not permitted`
+> or
+> lost all packets to all resources
+> in this case add `--cap-add=net_raw` to `docker run` or `podman run` commands.
+> Additionally fping executing in non-root environments can require sysctl modification:
+> `net.ipv4.ping_group_range=0 1995`
+> where 1995 is `zabbix` GID.
 
 ## Container shell access and viewing Zabbix server logs
 
@@ -144,7 +154,7 @@ ZBX_SERVICEMANAGERSYNCFREQUENCY=60 # Available since 6.0.0
 ZBX_HISTORYSTORAGEURL= # Available since 3.4.0
 ZBX_HISTORYSTORAGETYPES=uint,dbl,str,log,text # Available since 3.4.0
 ZBX_STARTPOLLERS=5
-ZBX_IPMIPOLLERS=0
+ZBX_STARTIPMIPOLLERS=0
 ZBX_STARTPREPROCESSORS=3 # Available since 3.4.0
 ZBX_STARTCONNECTORS=0 # Available since 6.4.0
 ZBX_STARTPOLLERSUNREACHABLE=1
@@ -169,6 +179,7 @@ ZBX_VMWARECACHESIZE=8M
 ZBX_VMWARETIMEOUT=10
 ZBX_ENABLE_SNMP_TRAPS=false
 ZBX_SOURCEIP=
+ZBX_SMSDEVICES=
 ZBX_HOUSEKEEPINGFREQUENCY=1
 ZBX_MAXHOUSEKEEPERDELETE=5000
 ZBX_PROBLEMHOUSEKEEPINGFREQUENCY=60 # Available since 6.0.0
@@ -198,9 +209,13 @@ ZBX_STARTPROXYPOLLERS=1
 ZBX_PROXYCONFIGFREQUENCY=10
 ZBX_PROXYDATAFREQUENCY=1
 ZBX_TLSCAFILE=
+ZBX_TLSCA=
 ZBX_TLSCRLFILE=
+ZBX_TLSCRL=
 ZBX_TLSCERTFILE=
+ZBX_TLSCERT=
 ZBX_TLSKEYFILE=
+ZBX_TLSKEY=
 ZBX_TLSCIPHERALL= # Available since 4.4.7
 ZBX_TLSCIPHERALL13= # Available since 4.4.7
 ZBX_TLSCIPHERCERT= # Available since 4.4.7
@@ -214,7 +229,7 @@ Default values of these variables are specified after equal sign.
 
 The allowed variables are identical of parameters in official ``zabbix_server.conf``. For example, ``ZBX_LOGSLOWQUERIES`` = ``LogSlowQueries``.
 
-Please use official documentation for [``zabbix_server.conf``](https://www.zabbix.com/documentation/current/manual/appendix/config/zabbix_server) to get more information about the variables.
+Please use official documentation for [``zabbix_server.conf``](https://www.zabbix.com/documentation/6.4/manual/appendix/config/zabbix_server) to get more information about the variables.
 
 ## Allowed volumes for the Zabbix server container
 
@@ -232,7 +247,7 @@ The volume allows load additional modules and extend Zabbix server using ``LoadM
 
 ### ``/var/lib/zabbix/enc``
 
-The volume is used to store TLS related files. These file names are specified using ``ZBX_TLSCAFILE``, ``ZBX_TLSCRLFILE``, ``ZBX_TLSKEY_FILE`` and ``ZBX_TLSPSKFILE`` variables.
+The volume is used to store TLS related files. These file names are specified using ``ZBX_TLSCAFILE``, ``ZBX_TLSCRLFILE``, ``ZBX_TLSCERTFILE`` and ``ZBX_TLSKEYFILE`` variables. Additionally it is possible to use environment variables ``ZBX_TLSCA``, ``ZBX_TLSCRL``, ``ZBX_TLSCERT`` and ``ZBX_TLSKEY`` with plaintext values.
 
 ### ``/var/lib/zabbix/ssh_keys``
 
@@ -295,7 +310,7 @@ Please see [the Docker installation documentation](https://docs.docker.com/insta
 
 ## Documentation
 
-Documentation for this image is stored in the [`server-mysql/` directory](https://github.com/zabbix/zabbix-docker/tree/3.0/server-mysql) of the [`zabbix/zabbix-docker` GitHub repo](https://github.com/zabbix/zabbix-docker/). Be sure to familiarize yourself with the [repository's `README.md` file](https://github.com/zabbix/zabbix-docker/blob/master/README.md) before attempting a pull request.
+Documentation for this image is stored in the [`server-mysql/` directory](https://github.com/zabbix/zabbix-docker/tree/6.4/Dockerfiles/server-mysql) of the [`zabbix/zabbix-docker` GitHub repo](https://github.com/zabbix/zabbix-docker/). Be sure to familiarize yourself with the [repository's `README.md` file](https://github.com/zabbix/zabbix-docker/blob/6.4/README.md) before attempting a pull request.
 
 ## Issues
 
@@ -308,3 +323,12 @@ If you have any problems with or questions about this image, please contact us t
 You are invited to contribute new features, fixes, or updates, large or small; we are always thrilled to receive pull requests, and do our best to process them as fast as we can.
 
 Before you start to code, we recommend discussing your plans through a [GitHub issue](https://github.com/zabbix/zabbix-docker/issues), especially for more ambitious contributions. This gives other contributors a chance to point you in the right direction, give you feedback on your design, and help you find out if someone else is working on the same thing.
+
+## License
+
+Starting from Zabbix version 7.0, all subsequent Zabbix versions will be released under the GNU Affero General Public License version 3 (AGPLv3).
+You can modify the relevant version and propagate such modified version under the terms of the AGPLv3 as published by the Free Software Foundation.
+For additional details, including answers to common questions about the AGPLv3, see the generic FAQ from the [Free Software Foundation](http://www.fsf.org/licenses/gpl-faq.html).
+
+Zabbix is Open Source Software, however, if you use Zabbix in a commercial context we kindly ask you to support the development of Zabbix by purchasing some level of technical support.
+All previous Zabbix software versions up to 6.4 are released under the GNU General Public License version 2 (GPLv2). The formal terms of the GPLv2 and AGPLv3 can be found at http://www.fsf.org/licenses/.

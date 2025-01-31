@@ -1,12 +1,13 @@
 # syntax=docker/dockerfile:1
+ARG OS_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.5
 ARG MAJOR_VERSION=6.4
-ARG RELEASE=7
-ARG ZBX_VERSION=${MAJOR_VERSION}.7
+ARG RELEASE=21
+ARG ZBX_VERSION=${MAJOR_VERSION}.21
 ARG BUILD_BASE_IMAGE=zabbix-build-mysql:rhel-${ZBX_VERSION}
 
-FROM ${BUILD_BASE_IMAGE} as builder
+FROM ${BUILD_BASE_IMAGE} AS builder
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal
+FROM ${OS_BASE_IMAGE}
 
 ARG MAJOR_VERSION
 ARG RELEASE
@@ -14,7 +15,9 @@ ARG ZBX_VERSION
 ARG ZBX_SOURCES=https://git.zabbix.com/scm/zbx/zabbix.git
 
 ENV TERM=xterm \
-    ZBX_VERSION=${ZBX_VERSION} ZBX_SOURCES=${ZBX_SOURCES}
+    ZBX_VERSION=${ZBX_VERSION} ZBX_SOURCES=${ZBX_SOURCES} \
+    ZABBIX_USER_HOME_DIR="/var/lib/zabbix" \
+    ZABBIX_CONF_DIR="/etc/zabbix"
 
 LABEL description="Zabbix agent is deployed on a monitoring target to actively monitor local resources and applications" \
       maintainer="alexey.pustovalov@zabbix.com" \
@@ -23,7 +26,7 @@ LABEL description="Zabbix agent is deployed on a monitoring target to actively m
       run="podman run --name zabbix-agent -p 10050:10050 -d registry.connect.redhat.com/zabbix/zabbix-agent-64:${ZBX_VERSION}" \
       summary="Zabbix agent" \
       url="https://www.zabbix.com/" \
-      vendor="Zabbix LLC" \
+      vendor="Zabbix SIA" \
       version="${MAJOR_VERSION}" \
       io.k8s.description="Zabbix agent is deployed on a monitoring target to actively monitor local resources and applications" \
       io.k8s.display-name="Zabbix Agent" \
@@ -39,39 +42,54 @@ LABEL description="Zabbix agent is deployed on a monitoring target to actively m
       org.label-schema.usage="https://www.zabbix.com/documentation/${MAJOR_VERSION}/manual/installation/containers" \
       org.label-schema.vcs-ref="${VCS_REF}" \
       org.label-schema.vcs-url="${ZBX_SOURCES}" \
-      org.label-schema.vendor="Zabbix LLC" \
+      org.label-schema.vendor="Zabbix SIA" \
       org.label-schema.version="${ZBX_VERSION}"
 
 STOPSIGNAL SIGTERM
 
 COPY ["licenses", "/licenses"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_agent/zabbix_agentd", "/usr/sbin/zabbix_agentd"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_get/zabbix_get", "/usr/bin/zabbix_get"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_sender/zabbix_sender", "/usr/bin/zabbix_sender"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/conf/zabbix_agentd.conf", "/etc/zabbix/zabbix_agentd.conf"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/agent/sbin/zabbix_agentd", "/usr/sbin/zabbix_agentd"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/general/bin/*", "/usr/bin/"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/agent/conf/", "${ZABBIX_CONF_DIR}/"]
 
-RUN set -eux && \
+RUN --mount=type=tmpfs,target=/var/lib/dnf/ \
+    --mount=type=tmpfs,target=/var/cache/yum/ \
+    set -eux && \
     INSTALL_PKGS="bash \
             tini \
-            tzdata \
             iputils \
             shadow-utils \
             pcre2 \
-            libcurl-minimal" && \
-    curl -sSL -o /tmp/epel-release-latest-9.noarch.rpm https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && \
+            libmodbus \
+            libcurl-minimal \
+            zlib" && \
+    curl --tlsv1.2 -sSf -L https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm -o /tmp/epel-release-latest-9.noarch.rpm && \
     rpm -ivh /tmp/epel-release-latest-9.noarch.rpm && \
     rm -rf /tmp/epel-release-latest-9.noarch.rpm && \
     microdnf -y install \
+            --disableplugin=subscription-manager \
             --disablerepo "*" \
             --enablerepo "ubi-9-baseos-rpms" \
             --enablerepo "epel" \
             --setopt=install_weak_deps=0 \
+            --setopt=keepcache=0 \
             --best \
             --setopt=tsflags=nodocs \
         ${INSTALL_PKGS} && \
-    microdnf -y reinstall \
+    microdnf -y update \
+            --disableplugin=subscription-manager \
+            --disablerepo "*" \
             --enablerepo "ubi-9-baseos-rpms" \
             --setopt=install_weak_deps=0 \
+            --best \
+            --setopt=tsflags=nodocs \
+        tzdata && \
+    microdnf -y reinstall \
+            --disableplugin=subscription-manager \
+            --disablerepo "*" \
+            --enablerepo "ubi-9-baseos-rpms" \
+            --setopt=install_weak_deps=0 \
+            --setopt=keepcache=0 \
             --best \
             --setopt=tsflags=nodocs \
         tzdata && \
@@ -82,26 +100,26 @@ RUN set -eux && \
     useradd \
             --system \
             --comment "Zabbix monitoring system" \
-            -g zabbix -G root \
+            -g zabbix \
             --uid 1997 \
             --shell /sbin/nologin \
-            --home-dir /var/lib/zabbix/ \
+            --home-dir ${ZABBIX_USER_HOME_DIR} \
         zabbix && \
-    mkdir -p /etc/zabbix && \
-    mkdir -p /etc/zabbix/zabbix_agentd.d && \
-    mkdir -p /var/lib/zabbix && \
-    mkdir -p /var/lib/zabbix/enc && \
-    mkdir -p /var/lib/zabbix/modules && \
-    chown --quiet -R zabbix:root /etc/zabbix/ /var/lib/zabbix/ && \
-    chgrp -R 0 /etc/zabbix/ /var/lib/zabbix/ && \
-    chmod -R g=u /etc/zabbix/ /var/lib/zabbix/ && \
-    microdnf -y clean all && \
-    rm -rf /var/cache/yum /var/lib/yum/yumdb/* /usr/lib/udev/hwdb.d/* && \
-    rm -rf /var/cache/dnf /etc/udev/hwdb.bin /root/.pki
+    mkdir -p ${ZABBIX_CONF_DIR}/ && \
+    mkdir -p ${ZABBIX_CONF_DIR}/zabbix_agentd.d && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR} && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/enc && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/enc_internal && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/modules && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/user_scripts && \
+    chown --quiet -R zabbix:root ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    chgrp -R 0 ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    chmod -R g=u ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    /usr/sbin/zabbix_agentd -V
 
 EXPOSE 10050/TCP
 
-WORKDIR /var/lib/zabbix
+WORKDIR ${ZABBIX_USER_HOME_DIR}
 
 COPY ["docker-entrypoint.sh", "/usr/bin/"]
 

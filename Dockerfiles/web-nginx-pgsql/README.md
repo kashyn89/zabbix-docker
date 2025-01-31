@@ -14,19 +14,19 @@ Zabbix web interface is a part of Zabbix software. It is used to manage resource
 
 # Zabbix web interface images
 
-These are the only official Zabbix web interface Docker images. They are based on Alpine Linux v3.12, Ubuntu 20.04 (focal), 22.04 (jammy), CentOS Stream 8 and Oracle Linux 8 images. The available versions of Zabbix web interface are:
+These are the only official Zabbix web interface Docker images. They are based on Alpine Linux v3.21, Ubuntu 24.04 (noble), CentOS Stream 9 and Oracle Linux 9 images. The available versions of Zabbix web interface are:
 
-    Zabbix web interface 4.0 (tags: alpine-4.0-latest, ubuntu-4.0-latest, centos-4.0-latest)
-    Zabbix web interface 4.0.* (tags: alpine-4.0.*, ubuntu-4.0.*, centos-4.0.*)
     Zabbix web interface 5.0 (tags: alpine-5.0-latest, ubuntu-5.0-latest, ol-5.0-latest)
     Zabbix web interface 5.0.* (tags: alpine-5.0.*, ubuntu-5.0.*, ol-5.0.*)
     Zabbix web interface 6.0 (tags: alpine-6.0-latest, ubuntu-6.0-latest, ol-6.0-latest)
     Zabbix web interface 6.0.* (tags: alpine-6.0.*, ubuntu-6.0.*, ol-6.0.*)
-    Zabbix web interface 6.2 (tags: alpine-6.2-latest, ubuntu-6.2-latest, ol-6.2-latest)
-    Zabbix web interface 6.2.* (tags: alpine-6.2.*, ubuntu-6.2.*, ol-6.2.*)
-    Zabbix web interface 6.4 (tags: alpine-6.4-latest, ubuntu-6.4-latest, ol-6.4-latest, alpine-latest, ubuntu-latest, ol-latest, latest)
+    Zabbix web interface 6.4 (tags: alpine-6.4-latest, ubuntu-6.4-latest, ol-6.4-latest)
     Zabbix web interface 6.4.* (tags: alpine-6.4.*, ubuntu-6.4.*, ol-6.4.*)
-    Zabbix web interface 7.0 (tags: alpine-trunk, ubuntu-trunk, ol-trunk)
+    Zabbix web interface 7.0 (tags: alpine-7.0-latest, ubuntu-7.0-latest, ol-7.0-latest)
+    Zabbix web interface 7.0.* (tags: alpine-7.0.*, ubuntu-7.0.*, ol-7.0.*)
+    Zabbix web interface 7.2 (tags: alpine-7.2-latest, ubuntu-7.2-latest, ol-7.2-latest, alpine-latest, ubuntu-latest, ol-latest, latest)
+    Zabbix web interface 7.2.* (tags: alpine-7.2.*, ubuntu-7.2.*, ol-7.2.*)
+    Zabbix web interface 7.4 (tags: alpine-trunk, ubuntu-trunk, ol-trunk)
 
 Images are updated when new releases are published. The image with ``latest`` tag is based on Alpine Linux.
 
@@ -130,7 +130,7 @@ The variable is timezone in PHP format. Full list of supported timezones are ava
 
 ### `ZBX_SERVER_NAME`
 
-The variable is visible Zabbix installation name in right top corner of the web interface.
+The variable is visible Zabbix installation name in right or left top corner of the web interface.
 
 ### `DB_DOUBLE_IEEE754`
 
@@ -138,7 +138,15 @@ Use IEEE754 compatible value range for 64-bit Numeric (float) history values. Av
 
 ### `ENABLE_WEB_ACCESS_LOG`
 
-The variable sets the Access Log directive for Web-server. By default, value corresponds to standard output.
+The variable sets the Access Log directive for Web server. By default, value corresponds to standard output.
+
+### `HTTP_INDEX_FILE`
+
+The variable controls default index page. By default, `index.php`.
+
+### `EXPOSE_WEB_SERVER_INFO`
+
+The variable allows to hide Web server and PHP versions. By default, `on`.
 
 ### `ZBX_MAXEXECUTIONTIME`
 
@@ -162,7 +170,7 @@ The varable is PHP ``max_input_time`` option. By default, value is `300`.
 
 ### `ZBX_SESSION_NAME`
 
-The variable is Zabbix frontend [definition](https://www.zabbix.com/documentation/current/manual/web_interface/definitions). String used as the name of the Zabbix frontend session cookie. By default, value is `zbx_sessionid`.
+The variable is Zabbix frontend [definition](https://www.zabbix.com/documentation/6.4/manual/web_interface/definitions). String used as the name of the Zabbix frontend session cookie. By default, value is `zbx_sessionid`.
 
 ### `ZBX_DENY_GUI_ACCESS`
 
@@ -196,9 +204,31 @@ The variable allows to specify the full path to a valid TLS certificate authorit
 
 The variable allows to activate host verification. Available since 5.0.0.
 
+### `ZBX_SSO_SP_KEY`
+
+The variable allows to specify a custom file path to the Serivce Provider (SP) private key file.
+
+### `ZBX_SSO_SP_CERT`
+
+The variable allows to specify a custom file path to the Serivce Provider (SP) cert file.
+
+### `ZBX_SSO_IDP_CERT`
+
+The variable allows to specify a custom file path to the SAML Certificate provided by the Identity Provider (ID) file.
+
 ## `ZBX_SSO_SETTINGS`
 
 The variable allows to specify custom SSO settings in JSON format. Available since 5.0.0.
+
+Example of YAML Mapping to Sequences
+
+```
+....
+  environment:
+    ZBX_SSO_SETTINGS: "{'baseurl': 'https://zabbix-docker.mydomain.com', 'use_proxy_headers': true, 'strict': false}"
+    ....
+....
+```
 
 ### Other variables
 
@@ -262,7 +292,7 @@ Please see [the Docker installation documentation](https://docs.docker.com/insta
 
 ## Documentation
 
-Documentation for this image is stored in the [`web-nginx-pgsql/` directory](https://github.com/zabbix/zabbix-docker/tree/3.0/web-nginx-pgsql) of the [`zabbix/zabbix-docker` GitHub repo](https://github.com/zabbix/zabbix-docker/). Be sure to familiarize yourself with the [repository's `README.md` file](https://github.com/zabbix/zabbix-docker/blob/master/README.md) before attempting a pull request.
+Documentation for this image is stored in the [`web-nginx-pgsql/` directory](https://github.com/zabbix/zabbix-docker/tree/6.4/Dockerfiles/web-nginx-pgsql) of the [`zabbix/zabbix-docker` GitHub repo](https://github.com/zabbix/zabbix-docker/). Be sure to familiarize yourself with the [repository's `README.md` file](https://github.com/zabbix/zabbix-docker/blob/6.4/README.md) before attempting a pull request.
 
 ## Issues
 
@@ -275,3 +305,12 @@ If you have any problems with or questions about this image, please contact us t
 You are invited to contribute new features, fixes, or updates, large or small; we are always thrilled to receive pull requests, and do our best to process them as fast as we can.
 
 Before you start to code, we recommend discussing your plans through a [GitHub issue](https://github.com/zabbix/zabbix-docker/issues), especially for more ambitious contributions. This gives other contributors a chance to point you in the right direction, give you feedback on your design, and help you find out if someone else is working on the same thing.
+
+## License
+
+Starting from Zabbix version 7.0, all subsequent Zabbix versions will be released under the GNU Affero General Public License version 3 (AGPLv3).
+You can modify the relevant version and propagate such modified version under the terms of the AGPLv3 as published by the Free Software Foundation.
+For additional details, including answers to common questions about the AGPLv3, see the generic FAQ from the [Free Software Foundation](http://www.fsf.org/licenses/gpl-faq.html).
+
+Zabbix is Open Source Software, however, if you use Zabbix in a commercial context we kindly ask you to support the development of Zabbix by purchasing some level of technical support.
+All previous Zabbix software versions up to 6.4 are released under the GNU General Public License version 2 (GPLv2). The formal terms of the GPLv2 and AGPLv3 can be found at http://www.fsf.org/licenses/.

@@ -495,7 +495,7 @@ spec:
             value: ""
           - name: ZBX_STARTHTTPPOLLERS
             value: ""
-          - name: ZBX_IPMIPOLLERS
+          - name: ZBX_STARTIPMIPOLLERS
             value: ""
           - name: ZBX_STARTTIMERS
             value: ""
@@ -603,12 +603,6 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 40
-          livenessProbe:
-            tcpSocket:
-              port: 10051
-            timeoutSeconds: 3
-            failureThreshold: 3
-            periodSeconds: 10
           securityContext:
             capabilities: {}
             privileged: false
@@ -696,7 +690,7 @@ spec:
             value: ""
           - name: ZBX_STARTPOLLERS
             value: ""
-          - name: ZBX_IPMIPOLLERS
+          - name: ZBX_STARTIPMIPOLLERS
             value: ""
           - name: ZBX_STARTPOLLERSUNREACHABLE
             value: ""
@@ -890,7 +884,7 @@ spec:
             value: ""
           - name: ZBX_STARTPOLLERS
             value: ""
-          - name: ZBX_IPMIPOLLERS
+          - name: ZBX_STARTIPMIPOLLERS
             value: ""
           - name: ZBX_STARTPOLLERSUNREACHABLE
             value: ""
@@ -1269,7 +1263,7 @@ spec:
             path: /var/run
             type: ''
 ---
-apiVersion: autoscaling/v2beta1
+apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: zabbix-web
@@ -1285,7 +1279,9 @@ spec:
   - type: Resource
     resource:
       name: cpu
-      targetAverageUtilization: 70
+      target:
+        type: Utilization
+        averageUtilization: 70
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

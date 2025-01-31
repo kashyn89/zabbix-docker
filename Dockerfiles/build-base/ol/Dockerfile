@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1
-FROM oraclelinux:9-slim
+ARG OS_BASE_IMAGE=oraclelinux:9-slim
+FROM ${OS_BASE_IMAGE}
 
 ARG MAJOR_VERSION=6.4
-ARG ZBX_VERSION=${MAJOR_VERSION}.7
+ARG ZBX_VERSION=${MAJOR_VERSION}.21
 
 ENV TERM=xterm \
     ZBX_VERSION=${ZBX_VERSION} \
@@ -14,10 +15,14 @@ LABEL org.opencontainers.image.authors="Alexey Pustovalov <alexey.pustovalov@zab
       org.opencontainers.image.licenses="GPL v2.0" \
       org.opencontainers.image.title="Zabbix build base" \
       org.opencontainers.image.url="https://zabbix.com/" \
-      org.opencontainers.image.vendor="Zabbix LLC" \
+      org.opencontainers.image.vendor="Zabbix SIA" \
       org.opencontainers.image.version="${ZBX_VERSION}"
 
-RUN set -eux && \
+COPY ["conf/etc/yum.repos.d/oracle-epel-ol9.repo", "/etc/yum.repos.d/oracle-epel-ol9.repo"]
+
+RUN --mount=type=tmpfs,target=/var/lib/dnf/ \
+    --mount=type=tmpfs,target=/var/cache/yum/ \
+    set -eux && \
     INSTALL_PKGS="autoconf \
             automake \
             bash \
@@ -28,6 +33,7 @@ RUN set -eux && \
             libcurl-devel \
             libevent-devel \
             libssh-devel \
+            libmodbus-devel \
             libxml2-devel \
             openssl-devel \
             openldap-devel \
@@ -37,19 +43,26 @@ RUN set -eux && \
             OpenIPMI-devel \
             openldap-devel \
             sqlite-devel \
+            postgresql-private-devel \
             postgresql-server-devel \
-            java-1.8.0-openjdk-devel \
+            java-17-openjdk-devel \
             git \
             gettext \
-            unixODBC-devel" && \
+            unixODBC-devel \
+            zlib-devel" && \
+    microdnf -y module enable \
+        --disablerepo "*" \
+        --enablerepo "ol9_appstream" \
+        --setopt=install_weak_deps=0 \
+        --setopt=keepcache=0 \
+        postgresql:16 && \
     microdnf -y install \
         --disablerepo "*" \
         --enablerepo "ol9_baseos_latest" \
         --enablerepo "ol9_appstream" \
         --enablerepo "ol9_codeready_builder" \
+        --enablerepo="ol9_developer_EPEL" \
         --setopt=install_weak_deps=0 \
+        --setopt=keepcache=0 \
         --best \
-        --nodocs ${INSTALL_PKGS} && \
-    microdnf -y clean all && \
-    rm -rf /var/cache/yum /var/lib/yum/yumdb/* /usr/lib/udev/hwdb.d/* && \
-    rm -rf /var/cache/dnf /etc/udev/hwdb.bin /root/.pki
+        --nodocs ${INSTALL_PKGS}

@@ -1,18 +1,21 @@
 # syntax=docker/dockerfile:1
+ARG OS_BASE_IMAGE=ubuntu:noble
 ARG MAJOR_VERSION=6.4
-ARG ZBX_VERSION=${MAJOR_VERSION}.7
+ARG ZBX_VERSION=${MAJOR_VERSION}.21
 ARG BUILD_BASE_IMAGE=zabbix-build-mysql:ubuntu-${ZBX_VERSION}
 
-FROM ${BUILD_BASE_IMAGE} as builder
+FROM ${BUILD_BASE_IMAGE} AS builder
 
-FROM ubuntu:jammy
+FROM ${OS_BASE_IMAGE}
 
 ARG MAJOR_VERSION
 ARG ZBX_VERSION
 ARG ZBX_SOURCES=https://git.zabbix.com/scm/zbx/zabbix.git
 
 ENV TERM=xterm \
-    ZBX_VERSION=${ZBX_VERSION} ZBX_SOURCES=${ZBX_SOURCES}
+    ZBX_VERSION=${ZBX_VERSION} ZBX_SOURCES=${ZBX_SOURCES} \
+    ZABBIX_USER_HOME_DIR="/var/lib/zabbix" \
+    ZABBIX_CONF_DIR="/etc/zabbix"
 
 LABEL org.opencontainers.image.authors="Alexey Pustovalov <alexey.pustovalov@zabbix.com>" \
       org.opencontainers.image.description="Zabbix agent is deployed on a monitoring target to actively monitor local resources and applications" \
@@ -21,27 +24,29 @@ LABEL org.opencontainers.image.authors="Alexey Pustovalov <alexey.pustovalov@zab
       org.opencontainers.image.source="${ZBX_SOURCES}" \
       org.opencontainers.image.title="Zabbix agent" \
       org.opencontainers.image.url="https://zabbix.com/" \
-      org.opencontainers.image.vendor="Zabbix LLC" \
+      org.opencontainers.image.vendor="Zabbix SIA" \
       org.opencontainers.image.version="${ZBX_VERSION}"
 
 STOPSIGNAL SIGTERM
 
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_agent/zabbix_agentd", "/usr/sbin/zabbix_agentd"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_get/zabbix_get", "/usr/bin/zabbix_get"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_sender/zabbix_sender", "/usr/bin/zabbix_sender"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/conf/zabbix_agentd.conf", "/etc/zabbix/zabbix_agentd.conf"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/agent/sbin/zabbix_agentd", "/usr/sbin/zabbix_agentd"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/general/bin/*", "/usr/bin/"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/agent/conf/", "${ZABBIX_CONF_DIR}/"]
 
-RUN set -eux && \
+RUN --mount=type=cache,target=/var/cache/apt/,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/,sharing=locked \
+    set -eux && \
     echo "#!/bin/sh\nexit 101" > /usr/sbin/policy-rc.d && \
     INSTALL_PKGS="bash \
             tini \
             tzdata \
             ca-certificates \
-            libssl3 \
-            libcurl4 \
+            libssl3t64 \
+            libcurl4t64 \
             libmodbus5 \
             libpcre2-8-0 \
-            libldap-2.4" && \
+            libldap-2.4 \
+            zlib1g" && \
     apt-get -y update && \
     DEBIAN_FRONTEND=noninteractive apt-get -y \
             --no-install-recommends install \
@@ -54,26 +59,25 @@ RUN set -eux && \
             --system \
             --comment "Zabbix monitoring system" \
             -g zabbix \
-            -G root \
             --uid 1997 \
             --shell /sbin/nologin \
-            --home-dir /var/lib/zabbix/ \
+            --home-dir ${ZABBIX_USER_HOME_DIR} \
         zabbix && \
-    mkdir -p /etc/zabbix && \
-    mkdir -p /etc/zabbix/zabbix_agentd.d && \
-    mkdir -p /var/lib/zabbix && \
-    mkdir -p /var/lib/zabbix/enc && \
-    mkdir -p /var/lib/zabbix/modules && \
-    chown --quiet -R zabbix:root /etc/zabbix/ /var/lib/zabbix/ && \
-    chgrp -R 0 /etc/zabbix/ /var/lib/zabbix/ && \
-    chmod -R g=u /etc/zabbix/ /var/lib/zabbix/ && \
-    apt-get -y autoremove && \
-    apt-get -y clean && \
-    rm -rf /var/lib/apt/lists/*
+    mkdir -p ${ZABBIX_CONF_DIR} && \
+    mkdir -p ${ZABBIX_CONF_DIR}/zabbix_agentd.d && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR} && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/enc && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/enc_internal && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/modules && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/user_scripts && \
+    chown --quiet -R zabbix:root ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    chgrp -R 0 ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    chmod -R g=u ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    /usr/sbin/zabbix_agentd -V
 
 EXPOSE 10050/TCP
 
-WORKDIR /var/lib/zabbix
+WORKDIR ${ZABBIX_USER_HOME_DIR}
 
 COPY ["docker-entrypoint.sh", "/usr/bin/"]
 

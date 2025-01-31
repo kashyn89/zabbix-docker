@@ -1,18 +1,21 @@
 # syntax=docker/dockerfile:1
+ARG OS_BASE_IMAGE=alpine:3.21
 ARG MAJOR_VERSION=6.4
-ARG ZBX_VERSION=${MAJOR_VERSION}.7
+ARG ZBX_VERSION=${MAJOR_VERSION}.21
 ARG BUILD_BASE_IMAGE=zabbix-build-mysql:alpine-${ZBX_VERSION}
 
-FROM ${BUILD_BASE_IMAGE} as builder
+FROM ${BUILD_BASE_IMAGE} AS builder
 
-FROM alpine:3.17
+FROM ${OS_BASE_IMAGE}
 
 ARG MAJOR_VERSION
 ARG ZBX_VERSION
 ARG ZBX_SOURCES=https://git.zabbix.com/scm/zbx/zabbix.git
 
 ENV TERM=xterm \
-    ZBX_VERSION=${ZBX_VERSION} ZBX_SOURCES=${ZBX_SOURCES}
+    ZBX_VERSION=${ZBX_VERSION} ZBX_SOURCES=${ZBX_SOURCES} \
+    ZABBIX_USER_HOME_DIR="/var/lib/zabbix" \
+    ZABBIX_CONF_DIR="/etc/zabbix"
 
 LABEL org.opencontainers.image.authors="Alexey Pustovalov <alexey.pustovalov@zabbix.com>" \
       org.opencontainers.image.description="Zabbix web service for performing various tasks using headless web browser" \
@@ -21,13 +24,13 @@ LABEL org.opencontainers.image.authors="Alexey Pustovalov <alexey.pustovalov@zab
       org.opencontainers.image.source="${ZBX_SOURCES}" \
       org.opencontainers.image.title="Zabbix web service" \
       org.opencontainers.image.url="https://zabbix.com/" \
-      org.opencontainers.image.vendor="Zabbix LLC" \
+      org.opencontainers.image.vendor="Zabbix SIA" \
       org.opencontainers.image.version="${ZBX_VERSION}"
 
 STOPSIGNAL SIGTERM
 
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/go/bin/zabbix_web_service", "/usr/sbin/zabbix_web_service"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/go/conf/zabbix_web_service.conf", "/etc/zabbix/zabbix_web_service.conf"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/web_service/sbin/zabbix_web_service", "/usr/sbin/zabbix_web_service"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/web_service/conf/", "${ZABBIX_CONF_DIR}/"]
 
 RUN set -eux && \
     INSTALL_PKGS="bash \
@@ -47,19 +50,20 @@ RUN set -eux && \
             --uid 1997 \
             --ingroup zabbix \
             --shell /sbin/nologin \
-            --home /var/lib/zabbix/ \
+            --home ${ZABBIX_USER_HOME_DIR} \
         zabbix && \
-    adduser zabbix root && \
-    mkdir -p /etc/zabbix && \
-    mkdir -p /var/lib/zabbix && \
-    chown --quiet -R zabbix:root /etc/zabbix/ /var/lib/zabbix/ && \
-    chgrp -R 0 /etc/zabbix/ /var/lib/zabbix/ && \
-    chmod -R g=u /etc/zabbix/ /var/lib/zabbix/ && \
-    rm -rf /var/cache/apk/*
+    mkdir -p ${ZABBIX_CONF_DIR} && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR} && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/enc && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/enc_internal && \
+    chown --quiet -R zabbix:root ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    chgrp -R 0 ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    chmod -R g=u ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    /usr/sbin/zabbix_web_service -V
 
 EXPOSE 10053/TCP
 
-WORKDIR /var/lib/zabbix
+WORKDIR ${ZABBIX_USER_HOME_DIR}
 
 COPY ["docker-entrypoint.sh", "/usr/bin/"]
 

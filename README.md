@@ -1,7 +1,11 @@
-![logo](https://assets.zabbix.com/img/logo/zabbix_logo_500x131.png)
+![Zabbix Logo](https://assets.zabbix.com/img/logo/zabbix_logo_500x131.png)
 
-[![Build images (DockerHub)](https://github.com/zabbix/zabbix-docker/actions/workflows/images_build.yml/badge.svg?branch=trunk&event=push)](https://github.com/zabbix/zabbix-docker/actions/workflows/images_build.yml)
-[![Build images (DockerHub, Windows)](https://github.com/zabbix/zabbix-docker/actions/workflows/images_build_windows.yml/badge.svg?branch=trunk&event=push)](https://github.com/zabbix/zabbix-docker/actions/workflows/images_build_windows.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/zabbix/zabbix-docker/badge)](https://securityscorecards.dev/viewer/?uri=github.com/zabbix/zabbix-docker)
+[![OpenSSF Best Practices](https://bestpractices.coreinfrastructure.org/projects/8395/badge)](https://bestpractices.coreinfrastructure.org/projects/8395)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=zabbix_zabbix-docker&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=zabbix_zabbix-docker)
+
+[![Build images (DockerHub)](https://github.com/zabbix/zabbix-docker/actions/workflows/images_build.yml/badge.svg?branch=6.4&event=push)](https://github.com/zabbix/zabbix-docker/actions/workflows/images_build.yml)
+[![Build images (DockerHub, Windows)](https://github.com/zabbix/zabbix-docker/actions/workflows/images_build_windows.yml/badge.svg?branch=6.4&event=push)](https://github.com/zabbix/zabbix-docker/actions/workflows/images_build_windows.yml)
 
 # What is Zabbix?
 
@@ -23,7 +27,8 @@ This repository contains **Dockerfile** of [Zabbix](https://zabbix.com/) for [Do
 * [oracle linux](https://hub.docker.com/_/oraclelinux/) from Zabbix 5.0
 * [ubuntu](https://hub.docker.com/_/ubuntu/)
 
-> **Important information: All Zabbix images based on CentOS 8 image can not be updated anymore because CentOS 8 base image is outdated on Docker Hub (base image is not updated for half year). CentOS Stream 8 from quay.io is used currently.**
+> [!IMPORTANT]
+> All Zabbix images based on CentOS 8 image can not be updated anymore because CentOS 8 base image is outdated on Docker Hub (base image is not updated for half year). CentOS Stream 8 and CentOS Stream 9 from quay.io is used currently.**
 
 ### Usage
 
@@ -32,7 +37,9 @@ There is some documentation and examples in the [official Zabbix Documentation](
 Please also follow usage instructions of each Zabbix component image:
 
 * [zabbix-appliance](https://hub.docker.com/r/zabbix/zabbix-appliance/) - Zabbix appliance with built-in MySQL server, Zabbix server, Zabbix Java Gateway and Zabbix frontend based on Nginx web-server
-    > **Important information: Zabbix Docker Appliance has been decommissioned and will not be available for 3.0.31, 4.0.19, 4.4.7, 5.0.0 and newer releases. Please use a separate Docker images for each component instead of the all-in-one solution.**
+
+> [!IMPORTANT]
+> Zabbix Docker Appliance has been decommissioned and will not be available for 3.0.31, 4.0.19, 4.4.7, 5.0.0 and newer releases. Please use a separate Docker images for each component instead of the all-in-one solution.**
 
 * [zabbix-agent](https://hub.docker.com/r/zabbix/zabbix-agent/) - Zabbix agent
 * [zabbix-agent2](https://hub.docker.com/r/zabbix/zabbix-agent2/) - Zabbix agent 2
@@ -58,8 +65,20 @@ Templates support several [Compose  profiles](https://docs.docker.com/compose/pr
 
 Be sure to check [the Wiki-page](https://github.com/zabbix/zabbix-docker/wiki) on common problems and questions. If you still have problems with or questions about the images, please contact us through a [GitHub issue](https://github.com/zabbix/zabbix-docker/issues).
 
+> [!NOTE]
+> Please report here issues and feature requests related to Docker images only. If you have issues or ideas how to improve Zabbix, use official [bug tracker](https://support.zabbix.com/).
+
 ## Contributing
 
 You are invited to contribute new features, fixes, or updates, large or small; we are always thrilled to receive pull requests, and do our best to process them as fast as we can.
 
 Before you start to code, we recommend discussing your plans through a [GitHub issue](https://github.com/zabbix/zabbix-docker/issues), especially for more ambitious contributions. This gives other contributors a chance to point you in the right direction, give you feedback on your design, and help you find out if someone else is working on the same thing.
+
+## License
+
+Starting from Zabbix version 7.0, all subsequent Zabbix versions will be released under the GNU Affero General Public License version 3 (AGPLv3).
+You can modify the relevant version and propagate such modified version under the terms of the AGPLv3 as published by the Free Software Foundation.
+For additional details, including answers to common questions about the AGPLv3, see the generic FAQ from the [Free Software Foundation](http://www.fsf.org/licenses/gpl-faq.html).
+
+Zabbix is Open Source Software, however, if you use Zabbix in a commercial context we kindly ask you to support the development of Zabbix by purchasing some level of technical support.
+All previous Zabbix software versions up to 6.4 are released under the GNU General Public License version 2 (GPLv2). The formal terms of the GPLv2 and AGPLv3 can be found at http://www.fsf.org/licenses/.

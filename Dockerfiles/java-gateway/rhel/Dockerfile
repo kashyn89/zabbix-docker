@@ -1,12 +1,13 @@
 # syntax=docker/dockerfile:1
+ARG OS_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.5
 ARG MAJOR_VERSION=6.4
-ARG RELEASE=7
-ARG ZBX_VERSION=${MAJOR_VERSION}.7
+ARG RELEASE=21
+ARG ZBX_VERSION=${MAJOR_VERSION}.21
 ARG BUILD_BASE_IMAGE=zabbix-build-mysql:rhel-${ZBX_VERSION}
 
-FROM ${BUILD_BASE_IMAGE} as builder
+FROM ${BUILD_BASE_IMAGE} AS builder
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal
+FROM ${OS_BASE_IMAGE}
 
 ARG MAJOR_VERSION
 ARG RELEASE
@@ -14,7 +15,9 @@ ARG ZBX_VERSION
 ARG ZBX_SOURCES=https://git.zabbix.com/scm/zbx/zabbix.git
 
 ENV TERM=xterm \
-    ZBX_VERSION=${ZBX_VERSION} ZBX_SOURCES=${ZBX_SOURCES}
+    ZBX_VERSION=${ZBX_VERSION} ZBX_SOURCES=${ZBX_SOURCES} \
+    ZABBIX_USER_HOME_DIR="/var/lib/zabbix" \
+    ZABBIX_CONF_DIR="/etc/zabbix"
 
 LABEL description="Zabbix Java Gateway performs native support for monitoring JMX applications" \
       maintainer="alexey.pustovalov@zabbix.com" \
@@ -23,7 +26,7 @@ LABEL description="Zabbix Java Gateway performs native support for monitoring JM
       run="docker run --name zabbix-java-gateway -p 10052:10052 -d registry.connect.redhat.com/zabbix/zabbix-java-gateway-64:${ZBX_VERSION}" \
       summary="Zabbix Java Gateway" \
       url="https://www.zabbix.com/" \
-      vendor="Zabbix LLC" \
+      vendor="Zabbix SIA" \
       version="${MAJOR_VERSION}" \
       io.k8s.description="Zabbix Java Gateway performs native support for monitoring JMX applications" \
       io.k8s.display-name="Zabbix Java Gateway" \
@@ -39,25 +42,28 @@ LABEL description="Zabbix Java Gateway performs native support for monitoring JM
       org.label-schema.usage="https://www.zabbix.com/documentation/${MAJOR_VERSION}/manual/installation/containers" \
       org.label-schema.vcs-ref="${VCS_REF}" \
       org.label-schema.vcs-url="${ZBX_SOURCES}" \
-      org.label-schema.vendor="Zabbix LLC" \
+      org.label-schema.vendor="Zabbix SIA" \
       org.label-schema.version="${ZBX_VERSION}"
 
 STOPSIGNAL SIGTERM
 
 COPY ["licenses", "/licenses"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_java/bin", "/usr/sbin/zabbix_java/bin"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_java/lib", "/usr/sbin/zabbix_java/lib"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/java_gateway/sbin/", "/usr/sbin/zabbix_java/"]
 
-RUN set -eux && \
+RUN --mount=type=tmpfs,target=/var/lib/dnf/ \
+    --mount=type=tmpfs,target=/var/cache/yum/ \
+    set -eux && \
     INSTALL_PKGS="bash \
             findutils \
             shadow-utils \
-            java-1.8.0-openjdk-headless" && \
+            java-17-openjdk-headless" && \
     microdnf -y install \
+            --disableplugin=subscription-manager \
             --disablerepo "*" \
             --enablerepo "ubi-9-baseos-rpms" \
             --enablerepo "ubi-9-appstream-rpms" \
             --setopt=install_weak_deps=0 \
+            --setopt=keepcache=0 \
             --best \
             --setopt=tsflags=nodocs \
         ${INSTALL_PKGS} && \
@@ -69,26 +75,22 @@ RUN set -eux && \
             --system \
             --comment "Zabbix monitoring system" \
             -g zabbix \
-            -G root \
             --uid 1997 \
             --shell /sbin/nologin \
-            --home-dir /var/lib/zabbix/ \
+            --home-dir ${ZABBIX_USER_HOME_DIR} \
         zabbix && \
-    mkdir -p /etc/zabbix/ && \
+    mkdir -p ${ZABBIX_CONF_DIR}/ && \
     mkdir -p /usr/sbin/zabbix_java/ && \
     mkdir -p /usr/sbin/zabbix_java/ext_lib/ && \
     rm -rf /usr/sbin/zabbix_java/lib/logback.xml && \
-    mv /usr/sbin/zabbix_java/lib/logback-console.xml /etc/zabbix/zabbix_java_gateway_logback.xml && \
-    chown --quiet -R zabbix:root /etc/zabbix/ /usr/sbin/zabbix_java/ && \
-    chgrp -R 0 /etc/zabbix/ /usr/sbin/zabbix_java/ && \
-    chmod -R g=u /etc/zabbix/ /usr/sbin/zabbix_java/ && \
-    microdnf -y clean all && \
-    rm -rf /var/cache/yum /var/lib/yum/yumdb/* /usr/lib/udev/hwdb.d/* && \
-    rm -rf /var/cache/dnf /etc/udev/hwdb.bin /root/.pki
+    mv /usr/sbin/zabbix_java/lib/logback-console.xml ${ZABBIX_CONF_DIR}/zabbix_java_gateway_logback.xml && \
+    chown --quiet -R zabbix:root ${ZABBIX_CONF_DIR}/ /usr/sbin/zabbix_java/ && \
+    chgrp -R 0 ${ZABBIX_CONF_DIR}/ /usr/sbin/zabbix_java/ && \
+    chmod -R g=u ${ZABBIX_CONF_DIR}/ /usr/sbin/zabbix_java/
 
 EXPOSE 10052/TCP
 
-WORKDIR /var/lib/zabbix
+WORKDIR ${ZABBIX_USER_HOME_DIR}
 
 COPY ["conf/usr/sbin/zabbix_java_gateway", "/usr/sbin/"]
 COPY ["docker-entrypoint.sh", "/usr/bin/"]

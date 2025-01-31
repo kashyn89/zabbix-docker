@@ -1,11 +1,12 @@
 # syntax=docker/dockerfile:1
+ARG OS_BASE_IMAGE=alpine:3.21
 ARG MAJOR_VERSION=6.4
-ARG ZBX_VERSION=${MAJOR_VERSION}.7
+ARG ZBX_VERSION=${MAJOR_VERSION}.21
 ARG BUILD_BASE_IMAGE=zabbix-build-sqlite3:alpine-${ZBX_VERSION}
 
-FROM ${BUILD_BASE_IMAGE} as builder
+FROM ${BUILD_BASE_IMAGE} AS builder
 
-FROM alpine:3.17
+FROM ${OS_BASE_IMAGE}
 
 ARG MAJOR_VERSION
 ARG ZBX_VERSION
@@ -13,7 +14,11 @@ ARG ZBX_SOURCES=https://git.zabbix.com/scm/zbx/zabbix.git
 
 ENV TERM=xterm \
     ZBX_VERSION=${ZBX_VERSION} ZBX_SOURCES=${ZBX_SOURCES} \
-    MIBDIRS=/usr/share/snmp/mibs:/var/lib/zabbix/mibs MIBS=+ALL
+    MIBDIRS=/usr/share/snmp/mibs:/var/lib/zabbix/mibs MIBS=+ALL \
+    NMAP_PRIVILEGED="" \
+    ZABBIX_USER_HOME_DIR="/var/lib/zabbix" \
+    ZABBIX_CONF_DIR="/etc/zabbix" \
+    ZBX_FPINGLOCATION="/usr/sbin/fping"
 
 LABEL org.opencontainers.image.authors="Alexey Pustovalov <alexey.pustovalov@zabbix.com>" \
       org.opencontainers.image.description="Zabbix proxy with SQLite3 database support" \
@@ -22,24 +27,25 @@ LABEL org.opencontainers.image.authors="Alexey Pustovalov <alexey.pustovalov@zab
       org.opencontainers.image.source="${ZBX_SOURCES}" \
       org.opencontainers.image.title="Zabbix proxy (SQLite3)" \
       org.opencontainers.image.url="https://zabbix.com/" \
-      org.opencontainers.image.vendor="Zabbix LLC" \
+      org.opencontainers.image.vendor="Zabbix SIA" \
       org.opencontainers.image.version="${ZBX_VERSION}"
 
 STOPSIGNAL SIGTERM
 
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_proxy/zabbix_proxy", "/usr/sbin/zabbix_proxy"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_get/zabbix_get", "/usr/bin/zabbix_get"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/src/zabbix_sender/zabbix_sender", "/usr/bin/zabbix_sender"]
-COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}/conf/zabbix_proxy.conf", "/etc/zabbix/zabbix_proxy.conf"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/proxy/sbin/zabbix_proxy", "/usr/sbin/zabbix_proxy"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/proxy/conf/", "${ZABBIX_CONF_DIR}/"]
+COPY --from=builder ["/tmp/zabbix-${ZBX_VERSION}-output/general/bin/", "/usr/bin/"]
 
 RUN set -eux && \
     INSTALL_PKGS="bash \
             tini \
-            sudo \
+            tzdata \
             traceroute \
             nmap \
             fping \
             iputils \
+            openssl \
+            libcap \
             libcurl \
             libevent \
             libldap \
@@ -49,7 +55,8 @@ RUN set -eux && \
             openipmi-libs \
             pcre2 \
             sqlite-libs \
-            unixodbc" && \
+            unixodbc \
+            zlib" && \
     apk add \
             --no-cache \
             --clean-protected \
@@ -65,33 +72,34 @@ RUN set -eux && \
             --uid 1997 \
             --ingroup zabbix \
             --shell /sbin/nologin \
-            --home /var/lib/zabbix/ \
+            --home ${ZABBIX_USER_HOME_DIR} \
         zabbix && \
-    echo "zabbix ALL=(root) NOPASSWD: /usr/bin/nmap" >> /etc/sudoers.d/zabbix && \
-    adduser zabbix root && \
-    mkdir -p /etc/zabbix && \
-    mkdir -p /var/lib/zabbix && \
-    mkdir -p /var/lib/zabbix/db_data && \
-    mkdir -p /var/lib/zabbix/enc && \
+    chgrp zabbix /usr/bin/nmap && \
+    setcap cap_net_raw+eip /usr/bin/nmap && \
+    mkdir -p ${ZABBIX_CONF_DIR} && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR} && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/db_data && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/enc && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/enc_internal && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/mibs && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/modules && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/snmptraps && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssh_keys && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssl && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssl/certs && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssl/keys && \
+    mkdir -p ${ZABBIX_USER_HOME_DIR}/ssl/ssl_ca && \
     mkdir -p /usr/lib/zabbix/externalscripts && \
-    mkdir -p /var/lib/zabbix/mibs && \
-    mkdir -p /var/lib/zabbix/modules && \
-    mkdir -p /var/lib/zabbix/snmptraps && \
-    mkdir -p /var/lib/zabbix/ssh_keys && \
-    mkdir -p /var/lib/zabbix/ssl && \
-    mkdir -p /var/lib/zabbix/ssl/certs && \
-    mkdir -p /var/lib/zabbix/ssl/keys && \
-    mkdir -p /var/lib/zabbix/ssl/ssl_ca && \
-    chown --quiet -R zabbix:root /etc/zabbix/ /var/lib/zabbix/ && \
-    chgrp -R 0 /etc/zabbix/ /var/lib/zabbix/ && \
-    chmod -R g=u /etc/zabbix/ /var/lib/zabbix/ && \
-    rm -rf /var/cache/apk/*
+    chown --quiet -R zabbix:root ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    chgrp -R 0 ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    chmod -R g=u ${ZABBIX_CONF_DIR}/ ${ZABBIX_USER_HOME_DIR}/ && \
+    /usr/sbin/zabbix_proxy -V
 
 EXPOSE 10051/TCP
 
-WORKDIR /var/lib/zabbix
+WORKDIR ${ZABBIX_USER_HOME_DIR}
 
-VOLUME ["/var/lib/zabbix/snmptraps"]
+VOLUME ["${ZABBIX_USER_HOME_DIR}/snmptraps"]
 
 COPY ["docker-entrypoint.sh", "/usr/bin/"]
 
